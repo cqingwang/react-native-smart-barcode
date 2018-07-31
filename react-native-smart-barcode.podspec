@@ -14,7 +14,7 @@ pjson = JSON.parse(File.read('package.json'))
   s.ios.deployment_target = '8.0'
   s.source          = { :git => "#{path}.git", :branch => "master" }
   
-  s.source_files    =  "ios/RCTBarcode/*.{h,m}"
+  s.source_files    =  "ios/RCTBarcode/RCTBarcode/*.{h,m}"
   s.resources = ["ios/raw/*.wav"]
   s.dependency 'React/Core'
 
