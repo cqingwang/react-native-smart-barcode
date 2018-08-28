@@ -24,7 +24,7 @@ RCT_EXPORT_VIEW_PROPERTY(scannerLineInterval, NSInteger)
 
 RCT_EXPORT_VIEW_PROPERTY(scannerRectCornerColor, NSString)
 
-RCT_EXPORT_VIEW_PROPERTY(onBarCodeRead, RCTBubblingEventBlock)
+//RCT_EXPORT_VIEW_PROPERTY(onBarCodeRead, RCTBubblingEventBlock)
 
 RCT_CUSTOM_VIEW_PROPERTY(barCodeTypes, NSArray, RCTBarcode) {
 //    NSLog(@"custom barCodeTypes -> %@", self.barCodeTypes);
@@ -38,19 +38,19 @@ RCT_CUSTOM_VIEW_PROPERTY(barCodeTypes, NSArray, RCTBarcode) {
     self.previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:self.session];
 //    self.previewLayer.needsDisplayOnBoundsChange = YES;
     #endif
-    
+
     if(!self.barcode){
         self.barcode = [[RCTBarcode alloc] initWithManager:self];
         [self.barcode setClipsToBounds:YES];
     }
-    
+
     SystemSoundID beep_sound_id;
     NSString *path = [[NSBundle mainBundle] pathForResource:@"beep" ofType:@"wav"];
     if (path) {
         AudioServicesCreateSystemSoundID((__bridge CFURLRef)[NSURL fileURLWithPath:path],&beep_sound_id);
         self.beep_sound_id = beep_sound_id;
     }
-    
+
     return self.barcode;
 }
 
@@ -62,45 +62,45 @@ RCT_CUSTOM_VIEW_PROPERTY(barCodeTypes, NSArray, RCTBarcode) {
 }
 
 - (void)initializeCaptureSessionInput:(NSString *)type {
-    
+
 //    NSLog(@"initializeCaptureSessionInput...");
-    
+
     dispatch_async(self.sessionQueue, ^{
-    
+
         [self.session beginConfiguration];
-        
+
         NSError *error = nil;
 
         AVCaptureDevice *captureDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
-        
+
         if (captureDevice == nil) {
             return;
         }
-        
+
         AVCaptureDeviceInput *captureDeviceInput = [AVCaptureDeviceInput deviceInputWithDevice:captureDevice error:&error];
-        
+
         if (error || captureDeviceInput == nil) {
 //            NSLog(@"%@", error);
             return;
         }
-        
+
         [self.session removeInput:self.videoCaptureDeviceInput];
 
-        
+
         if ([self.session canAddInput:captureDeviceInput]) {
-            
+
 //            NSLog(@"self.session canAddInput:captureDeviceInput...");
-            
+
             [self.session addInput:captureDeviceInput];
-            
+
             self.videoCaptureDeviceInput = captureDeviceInput;
-            
+
 //            self.metadataOutput.rectOfInterest = self.barcode.bounds;
 //            [self.metadataOutput setMetadataObjectTypes:self.metadataOutput.availableMetadataObjectTypes];
 //            [self.metadataOutput setMetadataObjectTypes:self.barCodeTypes];
 
         }
-        
+
         [self.session commitConfiguration];
     });
 }
@@ -110,42 +110,42 @@ RCT_EXPORT_METHOD(startSession) {
     return;
     #endif
     dispatch_async(self.sessionQueue, ^{
-        
+
 //        NSLog(@"self.metadataOutput = %@", self.metadataOutput);
-        
+
         if(self.metadataOutput == nil) {
-            
+
 //            NSLog(@"self.metadataOutput = %@", self.metadataOutput);
-            
+
             AVCaptureMetadataOutput *metadataOutput = [[AVCaptureMetadataOutput alloc] init];
             self.metadataOutput = metadataOutput;
-        
+
             if ([self.session canAddOutput:self.metadataOutput]) {
                 [self.metadataOutput setMetadataObjectsDelegate:self queue:self.sessionQueue];
                 [self.session addOutput:self.metadataOutput];
 //                  [metadataOutput setMetadataObjectTypes:self.metadataOutput.availableMetadataObjectTypes];
                 [self.metadataOutput setMetadataObjectTypes:self.barCodeTypes];
             }
-            
+
 //            [metadataOutput setMetadataObjectTypes:@[AVMetadataObjectTypeEAN13Code,AVMetadataObjectTypeEAN8Code,AVMetadataObjectTypeCode128Code,AVMetadataObjectTypeQRCode]];
-            
+
             //            [[NSNotificationCenter defaultCenter] addObserverForName:AVCaptureInputPortFormatDescriptionDidChangeNotification
             //                        object:nil
             //                        queue:[NSOperationQueue currentQueue]
             //                        usingBlock: ^(NSNotification *_Nonnull note) {
 //                                    metadataOutput.rectOfInterest = [self.previewLayer metadataOutputRectOfInterestForRect:CGRectMake(80, 80, 160, 160)];
             //                                                          }];
-            
+
 //            NSLog(@"startSession set metadataOutput...");
         }
-        
+
         [self.session startRunning];
-        
+
         if(self.barcode.scanLineTimer != nil) {
             //设回当前时间模拟继续效果
             [self.barcode.scanLineTimer setFireDate:[NSDate date]];
         }
-        
+
     });
 }
 
@@ -154,11 +154,11 @@ RCT_EXPORT_METHOD(stopSession) {
     return;
     #endif
     dispatch_async(self.sessionQueue, ^{
-        
+
         [self.session commitConfiguration];
         [self.session stopRunning];
-        
-        
+
+
         //设置大时刻来模拟暂停效果
         [self.barcode.scanLineTimer setFireDate:[NSDate distantFuture]];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0),
@@ -198,25 +198,25 @@ RCT_EXPORT_METHOD(stopSession) {
 //    return;
 //#endif
 //    dispatch_async(self.sessionQueue, ^{
-//        
+//
 //        AVCaptureMetadataOutput *metadataOutput = [[AVCaptureMetadataOutput alloc] init];
 //        if ([self.session canAddOutput:metadataOutput]) {
 //            [metadataOutput setMetadataObjectsDelegate:self queue:self.sessionQueue];
 //            [self.session addOutput:metadataOutput];
 ////            [metadataOutput setMetadataObjectTypes:self.barCodeTypes];
 //            [metadataOutput setMetadataObjectTypes:@[AVMetadataObjectTypeEAN13Code,AVMetadataObjectTypeEAN8Code,AVMetadataObjectTypeCode128Code,AVMetadataObjectTypeQRCode]];
-//            
+//
 ////            [[NSNotificationCenter defaultCenter] addObserverForName:AVCaptureInputPortFormatDescriptionDidChangeNotification
 ////                        object:nil
 ////                        queue:[NSOperationQueue currentQueue]
 ////                        usingBlock: ^(NSNotification *_Nonnull note) {
 ////                        metadataOutput.rectOfInterest = [self.previewLayer metadataOutputRectOfInterestForRect:CGRectMake(80, 80, 160, 160)];
 ////                                                          }];
-//            
+//
 //            self.metadataOutput = metadataOutput;
 //            NSLog(@"startSession set metadataOutput...");
 //        }
-//        
+//
 //        [self.session startRunning];
 //    });
 //}
@@ -233,7 +233,7 @@ RCT_EXPORT_METHOD(stopSession) {
 //        for(AVCaptureInput *input in self.session.inputs) {
 //            [self.session removeInput:input];
 //        }
-//        
+//
 //        for(AVCaptureOutput *output in self.session.outputs) {
 //            [self.session removeOutput:output];
 //        }
@@ -250,9 +250,9 @@ RCT_EXPORT_METHOD(stopSession) {
                 if (!self.barcode.onBarCodeRead) {
                     return;
                 }
-                
+
                 AudioServicesPlaySystemSound(self.beep_sound_id);
-                
+
 //                NSLog(@"type = %@, data = %@", metadata.type, metadata.stringValue);
                 self.barcode.onBarCodeRead(@{
                                               @"data": @{

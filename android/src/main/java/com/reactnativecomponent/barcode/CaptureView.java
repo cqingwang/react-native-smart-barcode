@@ -37,6 +37,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Vector;
 
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.hardware.Camera;
+import android.view.MotionEvent;
 
 public class CaptureView extends FrameLayout implements TextureView.SurfaceTextureListener {
 
@@ -99,6 +103,8 @@ public class CaptureView extends FrameLayout implements TextureView.SurfaceTextu
     boolean autoStart = true;//是否自动启动扫描
     String ResultStr="";
 
+    private int _surfaceTextureWidth;
+    private int _surfaceTextureHeight;
 
 
 
@@ -163,6 +169,7 @@ public class CaptureView extends FrameLayout implements TextureView.SurfaceTextu
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
+
         height = getHeight();
         width = getWidth();
     }
@@ -198,7 +205,7 @@ public class CaptureView extends FrameLayout implements TextureView.SurfaceTextu
             this.addView(this.viewfinderView);
         }
     }*/
-    
+
     /**
      * Activity onResume后调用view的onAttachedToWindow
      */
@@ -247,9 +254,8 @@ public class CaptureView extends FrameLayout implements TextureView.SurfaceTextu
 
 
 
-        vibrate = true;
-
         setPlayBeep(true);
+        setVibrate(true);
 //        initProgressBar();
 //        progressBar = new VerticalSeekBar(activity);
       /*  popupWindowContent = View.inflate(activity, R.layout.seekbar_layout, null);
@@ -324,6 +330,14 @@ public class CaptureView extends FrameLayout implements TextureView.SurfaceTextu
            playBeep = false;
         }
         initBeepSound();
+    }
+
+    public void setVibrate(boolean b) {
+        vibrate = b;
+        AudioManager audioService = (AudioManager) activity.getSystemService(activity.AUDIO_SERVICE);
+        if (audioService.getRingerMode() == AudioManager.RINGER_MODE_SILENT) {
+            vibrate = false;
+        }
     }
 
 
@@ -498,9 +512,21 @@ public class CaptureView extends FrameLayout implements TextureView.SurfaceTextu
 
 
     private void playBeepSoundAndVibrate() {
-        if (playBeep && mediaPlayer != null) {
-            mediaPlayer.start();
+
+        AudioManager audioManager = (AudioManager) activity.getSystemService(activity.AUDIO_SERVICE);
+        int volume_level = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+
+        if (volume_level == 0) {
+            if (vibrate) {
+                        Vibrator vibrator = (Vibrator) activity.getSystemService(activity.VIBRATOR_SERVICE);
+                        vibrator.vibrate(VIBRATE_DURATION);
+            }
+        } else {
+            if (playBeep && mediaPlayer != null) {
+                        mediaPlayer.start();
+            }
         }
+
         //抖动机身
       /*  if (vibrate) {
             Vibrator vibrator = (Vibrator) activity.getSystemService(activity.VIBRATOR_SERVICE);
@@ -816,11 +842,20 @@ public class CaptureView extends FrameLayout implements TextureView.SurfaceTextu
     public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
 //        Log.i("Test", "height:" + height + "width:" + width);
 
+        _surfaceTextureWidth = width;
+        _surfaceTextureHeight = height;
+
         CameraManager.init(activity);
 
+        this.width = width; // Workaround for app start and stop
         initCameraManager();
 
         surfaceTexture = surface;
+        try {
+            CameraManager.get().setPreviewTexture(surface);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
 
         textureView.setAlpha(1.0f);
@@ -833,11 +868,14 @@ public class CaptureView extends FrameLayout implements TextureView.SurfaceTextu
 
     @Override
     public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
-
+        _surfaceTextureWidth = width;
+        _surfaceTextureHeight = height;
     }
 
     @Override
     public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+        _surfaceTextureWidth = 0;
+        _surfaceTextureHeight = 0;
         stopScan();
         return false;
     }
@@ -862,118 +900,177 @@ public class CaptureView extends FrameLayout implements TextureView.SurfaceTextu
 
         private float startDis;
 
+        private float mFingerSpacing;
+
+        private static final int FOCUS_AREA_MOTION_EVENT_EDGE_LENGTH = 100;
+        private static final int FOCUS_AREA_WEIGHT = 1000;
+
+        protected Camera.Area computeFocusAreaFromMotionEvent(final MotionEvent event, final int surfaceTextureWidth, final int surfaceTextureHeight) {
+                // Get position of first touch pointer.
+                final int pointerId = event.getPointerId(0);
+                final int pointerIndex = event.findPointerIndex(pointerId);
+                final float centerX = event.getX(pointerIndex);
+                final float centerY = event.getY(pointerIndex);
+
+                // Build event rect. Note that coordinates increase right and down, such that left <= right
+                // and top <= bottom.
+                final RectF eventRect = new RectF(
+                        centerX - FOCUS_AREA_MOTION_EVENT_EDGE_LENGTH, // left
+                        centerY - FOCUS_AREA_MOTION_EVENT_EDGE_LENGTH, // top
+                        centerX + FOCUS_AREA_MOTION_EVENT_EDGE_LENGTH, // right
+                        centerY + FOCUS_AREA_MOTION_EVENT_EDGE_LENGTH // bottom
+                );
+
+                // Intersect this rect with the rect corresponding to the full area of the parent surface
+                // texture, making sure we are not placing any amount of the eventRect outside the parent
+                // surface's area.
+                final RectF surfaceTextureRect = new RectF(
+                        (float) 0, // left
+                        (float) 0, // top
+                        (float) surfaceTextureWidth, // right
+                        (float) surfaceTextureHeight // bottom
+                );
+                final boolean intersectSuccess = eventRect.intersect(surfaceTextureRect);
+                if (!intersectSuccess) {
+                    throw new RuntimeException(
+                            "MotionEvent rect does not intersect with SurfaceTexture rect; unable to " +
+                                    "compute focus area"
+                    );
+                }
+
+                // Transform into (-1000, 1000) focus area coordinate system. See
+                // https://developer.android.com/reference/android/hardware/Camera.Area.html.
+                // Note that if this is ever changed to a Rect instead of RectF, be cautious of integer
+                // division rounding!
+                final RectF focusAreaRect = new RectF(
+                        (eventRect.left / surfaceTextureWidth) * 2000 - 1000, // left
+                        (eventRect.top / surfaceTextureHeight) * 2000 - 1000, // top
+                        (eventRect.right / surfaceTextureWidth) * 2000 - 1000, // right
+                        (eventRect.bottom / surfaceTextureHeight) * 2000 - 1000 // bottom
+                );
+                Rect focusAreaRectRounded = new Rect();
+                focusAreaRect.round(focusAreaRectRounded);
+                return new Camera.Area(focusAreaRectRounded, FOCUS_AREA_WEIGHT);
+            }
+
 
         @Override
         public boolean onTouch(View v, MotionEvent event) {
 
-            /** 通过与运算保留最后八位 MotionEvent.ACTION_MASK = 255 */
-            switch (event.getAction() & MotionEvent.ACTION_MASK) {
-                // 手指压下屏幕
-                case MotionEvent.ACTION_DOWN:
-                    mode = MODE_ZOOM;
-                    startDis = event.getY();
-//                    Log.i("Test", "ACTION_DOWN");
-
-
-//                    int leftMargin = (width / 2) + cX + MAX_FRAME_WIDTH/2-(int)(25*density);
-                    int leftMargin = cX / 2 + MAX_FRAME_WIDTH / 2 - (int) (25 * density);
-                    int topMargin = cY / 2 - (int) (25 * density);
-/**
- * 显示seekbar
- */
-//                    popupWindow.showAtLocation(v, Gravity.CENTER, leftMargin,topMargin);
-
-                    break;
-             /*   case MotionEvent.ACTION_POINTER_DOWN:
-                    //如果mZoomSeekBar为null 表示该设备不支持缩放 直接跳过设置mode Move指令也无法执行
-                    if (seekbar == null) return true;
-                    //移除token对象为mZoomSeekBar的延时任务
-                    mHandler.removeCallbacksAndMessages(seekbar);
-                    seekbar.setVisibility(View.VISIBLE);
-
-                    mode = MODE_ZOOM;
-                    *//** 计算两个手指间的距离 *//*
-                    startDis = distance(event);
-                    break;*/
-                case MotionEvent.ACTION_MOVE:
-
-                    /**
-                     * 控制设置zoom没16毫秒触发,不到时间不触发
-                     */
-
-                    if (mode == MODE_ZOOM) {
-                        /* //只有同时触屏两个点的时候才执行
-                        if(event.getPointerCount()<2) return true;*/
-                        float endDis = startDis - event.getY();// 结束距离
-
-
-                        int scale = (int) (endDis / (ScreenHeight / getMaxZoom()));
-
-                        if (scale == 0 && endDis < 0) {
-                            scale = -1;
-                        } else if (scale == 0 && endDis > 0) {
-                            scale = 1;
-                        }
-//                        Log.i("Test", "scale:" + scale);
-
-                        /**
-                         * 处理时间
-                         */
-                        long endTime = System.currentTimeMillis();
-
-                        long time = endTime - beginTime;
-
-                        beginTime = System.currentTimeMillis();
-
-                        if (scale >= 1 || scale <= -1) {
-                            int zoom = getZoom() + scale;
-                            //zoom不能超出范围
-                            if (zoom > getMaxZoom()) zoom = getMaxZoom();
-                            if (zoom < 0) zoom = 0;
-//                            Log.i("Test", "zoom:" + zoom + ",Time:" + time);
-                            setZoom(zoom);
-//                            progressBar.setProgress(zoom);
-                            //将最后一次的距离设为当前距离
-//                            startDis = endDis;
-                        }
-                    }
-                    break;
-                // 手指离开屏幕
-                case MotionEvent.ACTION_UP:
-
-                    /*if(mode!=MODE_ZOOM){
-                        //设置聚焦
-                        Point point=new Point((int)event.getX(), (int)event.getY());
-                        mCameraView.onFocus(point,autoFocusCallback);
-                        mFocusImageView.startFocus(point);
-                    }else {*/
-                    //ZOOM模式下 在结束两秒后隐藏seekbar 设置token为mZoomSeekBar用以在连续点击时移除前一个定时任务
-
-					/*mHandler.postAtTime(new Runnable() {
-
-						@Override
-						public void run() {
-							// TODO Auto-generated method stub
-                            if(popupWindow.isShowing()){
-                                popupWindow.dismiss();
-                            }
-						}
-					}, progressBar,SystemClock.uptimeMillis()+5000);
-//                    }*/
-                    break;
+            // Fast swiping and touching while component is being loaded can cause _camera to be null.
+            if (CameraManager.get().getCamera() == null) {
+                return false;
             }
+
+            // Get the pointer ID
+            Camera.Parameters params = CameraManager.get().getCamera().getParameters();;
+            int action = event.getAction();
+
+
+            if (event.getPointerCount() > 1) {
+                // handle multi-touch events
+                if (action == MotionEvent.ACTION_POINTER_DOWN) {
+                    mFingerSpacing = getFingerSpacing(event);
+                } else if (action == MotionEvent.ACTION_MOVE && params.isZoomSupported()) {
+                    CameraManager.get().getCamera().cancelAutoFocus();
+                    handleZoom(event, params);
+                }
+            } else {
+                // handle single touch events
+                if (action == MotionEvent.ACTION_UP) {
+                    handleFocus(event, params);
+                }
+            }
+
             return true;
         }
 
-//        /**
-//         * 计算两个手指间的距离
-//         */
-//        private float distance(MotionEvent event) {
-//            float dx = event.getX(1) - event.getX(0);
-//            float dy = event.getY(1) - event.getY(0);
-//            /** 使用勾股定理返回两点之间的距离 */
-//            return (float) Math.sqrt(dx * dx + dy * dy);
-//        }
+        private void handleZoom(MotionEvent event, Camera.Parameters params) {
+                int maxZoom = getMaxZoom();
+                int zoom = params.getZoom();
+                float newDist = getFingerSpacing(event);
+                if (newDist > mFingerSpacing) {
+                    //zoom in
+                    if (zoom < maxZoom)
+                        zoom++;
+                } else if (newDist < mFingerSpacing) {
+                    //zoom out
+                    if (zoom > 0)
+                        zoom--;
+                }
+                mFingerSpacing = newDist;
+                params.setZoom(zoom);
+                CameraManager.get().getCamera().setParameters(params);
+        }
+
+        /**
+             * Handles setting focus to the location of the event.
+             *
+             * Note that this will override the focus mode on the camera to FOCUS_MODE_AUTO if available,
+             * even if this was previously something else (such as FOCUS_MODE_CONTINUOUS_*; see also
+             * {@link #startCamera()}. However, this makes sense - after the user has initiated any
+             * specific focus intent, we shouldn't be refocusing and overriding their request!
+             */
+            public void handleFocus(MotionEvent event, Camera.Parameters params) {
+                List<String> supportedFocusModes = params.getSupportedFocusModes();
+                if (supportedFocusModes != null && supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
+                    // Ensure focus areas are enabled. If max num focus areas is 0, then focus area is not
+                    // supported, so we cannot do anything here.
+                    if (params.getMaxNumFocusAreas() == 0) {
+                        return;
+                    }
+
+                    // Cancel any previous focus actions.
+                    CameraManager.get().getCamera().cancelAutoFocus();
+
+                    // Compute focus area rect.
+                    Camera.Area focusAreaFromMotionEvent;
+                    try {
+                        focusAreaFromMotionEvent = computeFocusAreaFromMotionEvent(event, _surfaceTextureWidth, _surfaceTextureHeight);
+                    } catch (final RuntimeException e) {
+                        e.printStackTrace();
+                        return;
+                    }
+
+                    // Set focus mode to auto.
+                    params.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+                    // Set focus area.
+                    final ArrayList<Camera.Area> focusAreas = new ArrayList<Camera.Area>();
+                    focusAreas.add(focusAreaFromMotionEvent);
+                    params.setFocusAreas(focusAreas);
+
+                    // Also set metering area if enabled. If max num metering areas is 0, then metering area
+                    // is not supported. We can usually safely omit this anyway, though.
+                    if (params.getMaxNumMeteringAreas() > 0) {
+                        params.setMeteringAreas(focusAreas);
+                    }
+
+                    // Set parameters before starting auto-focus.
+                    CameraManager.get().getCamera().setParameters(params);
+
+                    // Start auto-focus now that focus area has been set. If successful, then can cancel
+                    // it afterwards. Wrap in try-catch to avoid crashing on merely autoFocus fails.
+                    try {
+                        CameraManager.get().getCamera().autoFocus(new Camera.AutoFocusCallback() {
+                            @Override
+                            public void onAutoFocus(boolean success, Camera camera) {
+                                if (success) {
+                                    camera.cancelAutoFocus();
+                                }
+                            }
+                        });
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+
+            /** Determine the space between the first two fingers */
+                private float getFingerSpacing(MotionEvent event) {
+                    float x = event.getX(0) - event.getX(1);
+                    float y = event.getY(0) - event.getY(1);
+                    return (float) Math.sqrt(x * x + y * y);
+                }
 
     }
 

@@ -158,6 +158,12 @@ private final Context context;
     }
   }
 
+  public void setPreviewTexture(SurfaceTexture surfaceTexture) throws IOException {
+    if (camera != null) {
+      camera.setPreviewTexture(surfaceTexture);
+    }
+  }
+
   /**
    * Closes the camera driver if still in use.
    */

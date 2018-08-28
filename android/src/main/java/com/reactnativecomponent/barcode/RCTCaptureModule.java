@@ -81,8 +81,6 @@ public class RCTCaptureModule extends ReactContextBaseJavaModule {
             getCurrentActivity().runOnUiThread(new Runnable() {
                 public void run() {
                     captureManager.cap.startQR();
-//                    captureManager.cap.startScan();
-//                    Toast.makeText(getCurrentActivity(), "startScan", Toast.LENGTH_SHORT).show();
                 }
             });
         }
@@ -94,9 +92,31 @@ public class RCTCaptureModule extends ReactContextBaseJavaModule {
         if (captureManager.cap != null) {
             getCurrentActivity().runOnUiThread(new Runnable() {
                 public void run() {
-//                    captureManager.cap.stopQR();
+                    captureManager.cap.stopQR();
+                }
+            });
+        }
+    }
+
+    @ReactMethod
+    public void startScan() {
+
+        if (captureManager.cap != null) {
+            getCurrentActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    captureManager.cap.startScan();
+                }
+            });
+        }
+    }
+
+
+    @ReactMethod
+    public void stopScan() {
+        if (captureManager.cap != null) {
+            getCurrentActivity().runOnUiThread(new Runnable() {
+                public void run() {
                     captureManager.cap.stopScan();
-//                    Toast.makeText(getCurrentActivity(), "stopScan", Toast.LENGTH_SHORT).show();
                 }
             });
         }
